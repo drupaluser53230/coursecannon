@@ -1,0 +1,15 @@
+name = Content menu notifications
+description = Display news contents for logged-in users on menu links
+core = 7.x
+package = Content notifications
+
+dependencies[] = content_notifications
+dependencies[] = menu
+dependencies[] = views
+
+; Information added by Drupal.org packaging script on 2017-11-30
+version = "7.x-1.0-alpha5"
+core = "7.x"
+project = "content_notifications"
+datestamp = "1512057199"
+
