@@ -1,0 +1,28 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the module.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function content_notifications_uninstall() {
+  variable_del('content_notifications_status_display');
+  variable_del('content_notifications_days_limit');
+}
+
+/**
+ * Implements hook_install().
+ */
+function content_notifications_install() {
+  /*
+   * Hack to set extra field visibility default to false
+   * @see https://www.drupal.org/node/1256368
+   */
+  $types = node_type_get_types();
+  foreach ($types as $type_name => $type) {
+    content_notifications_hide_new_extra_field('node', $type_name, 'content_status_placeholder');
+  }
+}
