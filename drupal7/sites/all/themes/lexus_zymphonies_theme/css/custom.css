@@ -67,3 +67,26 @@
 /* .hp-course :hover{
     box-shadow: 0 0 20px rgba(0,0,0,0.2);
 } */
+/* .social-icon-footerviews-row-odd views-row-first:after {
+    font-family: fontawesome;
+    content: "\f095";
+
+} */
+.region-footer-first .view-course-list .view-content {
+    display: grid;
+    grid-gap: 7px;
+    font-family: "Roboto",montserrat,arial;
+    font-size: 15px;
+    font-weight: 900;
+}
+#block-views-course-list-blk-list-of-course >h2{
+    font-family: fontawesome;
+    font-size: 1.4rem;
+    color: #0194CA;
+    line-height: 1.5em;
+    font-weight: 600;
+}
+#footer .column li  {
+    display: inline-block;
+    padding: 8px;
+}
