@@ -1,0 +1,12 @@
+name = Content notifications
+description = Notice new content, unread or updated for logged-in users
+core = 7.x
+configure = admin/config/content/content-notifications
+package = Content notifications
+
+; Information added by Drupal.org packaging script on 2017-11-30
+version = "7.x-1.0-alpha5"
+core = "7.x"
+project = "content_notifications"
+datestamp = "1512057199"
+

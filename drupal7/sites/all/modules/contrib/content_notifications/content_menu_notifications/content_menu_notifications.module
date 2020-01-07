@@ -1,0 +1,322 @@
+<?php
+
+/**
+ * @file
+ * Module hooks and common functions.
+ */
+
+// Separate handlers in a different file.
+require_once dirname(__FILE__) . '/content_menu_notifications.handlers.inc.php';
+
+/**
+ * Implements hook_menu().
+ */
+function content_menu_notifications_menu() {
+
+  $items['content-notifications/menu/get/json'] = array(
+    'page callback' => 'content_menu_notifications_return_notifications_json',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_preprocess_HOOK().
+ */
+function content_menu_notifications_preprocess_page(&$variables) {
+  if (user_is_logged_in()) {
+    drupal_add_js(drupal_get_path('module', 'content_menu_notifications') . '/js/content_menu_notifications.js', array('type' => 'file', 'scope' => 'footer'));
+  }
+}
+
+/**
+ * Menu callback that respond to ajax call with a json with every ids.
+ */
+function content_menu_notifications_return_notifications_json() {
+  $return = array();
+
+  if (isset($_POST['menus']) && is_array($_POST['menus'])) {
+    // Load handlers.
+    foreach ($_POST['menus'] as $id => $mlid) {
+
+      if ($menu_item = menu_link_load((int) $mlid)) {
+        if ($menu_item['options'] && isset($menu_item['options']['content_notifications']['handlers'])) {
+          $handlers = content_menu_notifications_get_handlers_by_keys();
+          $menu_handlers = $menu_item['options']['content_notifications']['handlers'];
+          $output = '';
+
+          foreach ($menu_handlers as $handler_key) {
+            if (isset($handlers[$handler_key])) {
+              $handler = $handlers[$handler_key];
+              if (isset($handler['callback'])) {
+
+                $callback = $handler['callback'];
+                $arguments = isset($handler['arguments']) ? $handler['arguments'] : NULL;
+
+                if ($callback
+                  && function_exists($callback)
+                  && $result = call_user_func_array($callback, $arguments)) {
+
+                  /* Handle multiple callback with different type of result
+                   * if multiple integer -> sum the result
+                   * if string -> concatenate.
+                   */
+                  if (!$output) {
+                    $output = $result;
+                  }
+                  else {
+                    if (intval($output)) {
+                      $output += $result;
+                    }
+                    else {
+                      $output .= ' ' . $result;
+                    }
+                  }
+                }
+              }
+            }
+          }
+          if ($output) {
+            $return['menus'][$id] = theme('content_notification', array('content' => $output));
+          }
+        }
+      }
+    }
+  }
+
+  drupal_json_output($return);
+}
+
+/**
+ * Implements hook_content_menu_notifications_handlers().
+ *
+ * The handlers are set in a array formatted like this
+ * 'callback'   => function to call
+ * 'arguments'  => arguments passed to function
+ * 'label'      => option label for admin select
+ * 'group_label'=> Group option, for admin select
+ */
+function content_menu_notifications_content_menu_notifications_handlers() {
+  $handlers = array();
+
+  $handlers[] = array(
+    'callback' => 'content_menu_notifications_display_text',
+    'arguments' => array('new'),
+    'label' => t('new'),
+    'group_label' => t('Static text'),
+  );
+
+  $handlers[] = array(
+    'callback' => 'content_menu_notifications_display_text',
+    'arguments' => array('updated'),
+    'label' => t('updated'),
+    'group_label' => t('Static text'),
+  );
+
+  $views = views_get_enabled_views();
+  $views_group_label = 'Views unread nodes count';
+
+  foreach ($views as $view) {
+    if ($view->base_table == 'node') {
+      $handler = array(
+        'callback' => 'content_menu_notifications_get_view_count',
+        'arguments' => array($view->name),
+        'label' => $view->human_name,
+        'group_label' => $views_group_label,
+      );
+
+      $handlers[] = $handler;
+
+      foreach ($view->display as $display) {
+        if ($display->id !== 'default') {
+          $handler = array(
+            'callback' => 'content_menu_notifications_get_view_count',
+            'arguments' => array($view->name, $display->id),
+            'label' => "-- " . $display->display_title,
+            'group_label' => $views_group_label,
+          );
+
+          $handlers[] = $handler;
+        }
+      }
+    }
+  }
+
+  return $handlers;
+}
+
+/**
+ * Return an array of all content notifications handlers keyed.
+ *
+ * @return array
+ * keyed array of handlers.
+ */
+function content_menu_notifications_get_handlers_by_keys() {
+  $handlers_keyed = &drupal_static(__FUNCTION__);
+
+  if (!isset($handlers_keyed)) {
+    if ($cache = cache_get('content_menu_notifications_handlers')) {
+      $handlers_keyed = $cache->data;
+    }
+    else {
+
+      $handlers = module_invoke_all('content_menu_notifications_handlers');
+
+      foreach ($handlers as $handler) {
+        if ($key = content_menu_notifications_handler_key($handler)) {
+          $handlers_keyed[$key] = $handler;
+        }
+      }
+
+      cache_set('content_menu_notifications_handlers', $handlers_keyed, 'cache');
+    }
+  }
+  return $handlers_keyed;
+}
+
+/**
+ * Return a key for handler based on callback and arguments.
+ *
+ * @param array $handler
+ *
+ * @return bool|string key
+ */
+function content_menu_notifications_handler_key($handler){
+  $key = FALSE;
+  if (isset($handler['callback']) && isset($handler['arguments'])) {
+    $key_params = array_intersect_key($handler, array_flip(array('callback', 'arguments')));
+    $key = _content_menu_notification_flatten_handler($key_params);
+  }
+  return $key;
+}
+
+/**
+ * Flatten array to concatenated string.
+ *
+ * @param $handler
+ *
+ * @return string
+ */
+function _content_menu_notification_flatten_handler($handler) {
+  foreach ($handler as $key => $values) {
+    if (is_array($values)) {
+      $handler[$key] = _content_menu_notification_flatten_handler($values);
+    }
+  }
+  return implode("::", $handler);
+}
+
+/**
+ * Return handlers for select options.
+ *
+ * @return array
+ */
+function content_menu_notifications_handlers_options() {
+  $options = array();
+  $handlers = content_menu_notifications_get_handlers_by_keys();
+  foreach ($handlers as $key => $handler) {
+    if (isset($handler['group_label']) && $handler['group_label']) {
+      $options[$handler['group_label']][$key] = $handler['label'];
+    }
+  }
+  return $options;
+}
+
+/**
+ * Return content notifications handlers for select options.
+ */
+function _content_menu_notifications_get_views_options() {
+
+  $options = &drupal_static(__FUNCTION__);
+  if (!isset($options)) {
+    $options = array('' => t('None'));
+    $options += content_menu_notifications_handlers_options();
+  }
+  return $options;
+}
+
+/**
+ * Implements hook_form_BASE_FORM_ID_alter().
+ */
+function content_menu_notifications_form_menu_edit_item_alter(&$form, &$form_state, $form_id) {
+  if (user_access('administer content notifications')) {
+    $options = _content_menu_notifications_get_views_options();
+    $form['content_notifications_handlers'] = array(
+      '#type' => 'select',
+      '#title' => t('Notifications handlers'),
+      '#multiple' => TRUE,
+      '#size' => 20,
+      '#options' => $options,
+      '#description' => t('You can select one or more handlers that will be combined depending of the results'),
+      '#default_value' => isset($form['options']['#value']['content_notifications']['handlers']) ? $form['options']['#value']['content_notifications']['handlers'] : '',
+      "#weight" => 99,
+    );
+
+    array_push($form['#submit'], 'content_menu_notifications_menu_edit_item_submit');
+  }
+}
+
+/**
+ * Submit handler menu item edit to save selected views.
+ */
+function content_menu_notifications_menu_edit_item_submit(&$form, &$form_state) {
+
+  if ($form_state['values']['op'] == $form_state['values']['submit']) {
+    if (empty($form_state['values']['content_notifications_handlers'])) {
+      unset($form_state['values']['options']['content_notifications']);
+    }
+    elseif ($form_state['values']['mlid']) {
+      $form_state['values']['options']['content_notifications']['mlid'] = $form_state['values']['mlid'];
+      $form_state['values']['options']['content_notifications']['handlers'] = $form_state['values']['content_notifications_handlers'];
+    }
+    // Resave menu after alter data because we need the mlid.
+    $item = $form_state['values'];
+    menu_link_save($item);
+  }
+
+}
+
+/**
+ * Implements hook_preprocess_link().
+ */
+function content_menu_notifications_preprocess_link(&$variables) {
+
+  if (!empty($variables['options']) && !empty($variables['options']['content_notifications']) && !empty($variables['options']['content_notifications']['mlid'])) {
+    $variables['options']['html'] = TRUE;
+    $mlid = $variables['options']['content_notifications']['mlid'];
+    $variables['text'] .= ' <span class="content-menu-notifications-placeholder" id="content-notifications-menu-' . $mlid . '" data-mlid="' . $mlid . '"></span>';
+  }
+}
+
+/**
+ * Implements hook_views_pre_execute().
+ */
+function content_menu_notifications_views_pre_execute(&$view) {
+  if (property_exists($view, 'count_unread') && user_is_logged_in()) {
+    $view->build_info['count_query']->addTag('content_unread');
+  }
+}
+
+/**
+ * Implements hook_query_TAG_alter().
+ */
+function content_menu_notifications_query_content_unread_alter(QueryAlterableInterface $query) {
+  global $user;
+
+  $history_query = db_select('history')
+    ->fields('history', array('nid'))
+    ->condition('uid', $user->uid);
+
+  $time_limit = _content_notifications_get_time_limit();
+  $query->condition('node.created', $time_limit, '>=');
+  $query->condition('node.nid', $history_query, 'NOT IN');
+}
+
+/**
+ * Implements hook_views_view_save().
+ */
+function content_menu_notifications_views_view_save($view) {
+  cache_clear_all('content_menu_notifications_handlers', 'cache');
+}
